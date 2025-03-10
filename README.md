@@ -1,1 +1,1 @@
-# Persona AI Assistant
+# Personal AI Assistant
