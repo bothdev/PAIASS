@@ -1,4 +1,4 @@
-# pip install sentence-transformers faiss-cpu langchain python-docx pymupdf
+# pip install sentence-transformers faiss-cpu langchain python-docx pymupdf pandas
 
 from sentence_transformers import SentenceTransformer
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -9,6 +9,7 @@ import os
 import fitz
 from docx import Document
 import pickle
+import pandas as pd
 
 # === Paths for persistence ===
 INDEX_PATH = "index.faiss"
@@ -40,6 +41,9 @@ def load_documents_from_folder(folder_path):
                 all_text += para.text + "\n"
         elif file_name.endswith(".pdf"):
             all_text += read_pdf_with_pymupdf(file_path) + "\n"
+        elif file_name.endswith(".xlsx"):
+            df = pd.read_excel(file_path)
+            all_text += df.to_string(index=False) + "\n"
     return all_text
 
 # === Load or build index ===
