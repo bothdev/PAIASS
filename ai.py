@@ -100,7 +100,7 @@ def query_llama_ollama(prompt):
     response = requests.post(
         "http://localhost:11434/api/generate",
         json={
-            "model": "llama3.1",  # Replace if your model name is different
+            "model": "gemma3:1b",  # Replace if your model name is different
             "prompt": prompt,
             "stream": False
         }
