@@ -1,4 +1,4 @@
-# pip install sentence-transformers faiss-cpu langchain python-docx pymupdf pandas
+# pip install sentence-transformers faiss-cpu pip insp python-docx pymupdf pandas requests pickle
 
 from sentence_transformers import SentenceTransformer
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -95,17 +95,22 @@ Question:
 Answer:"""
     return prompt
 
-# === Query LLaMA via Ollama ===
-def query_llama_ollama(prompt):
-    response = requests.post(
-        "http://localhost:11434/api/generate",
-        json={
-            "model": "llama3.1",  # Replace if your model name is different
-            "prompt": prompt,
-            "stream": False
-        }
-    )
-    return response.json()['response']
+# === Query Ollama ===
+def query_ollama(prompt, model_name="gemma3:1b"): #change model here.
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": model_name,
+                "prompt": prompt,
+                "stream": False
+            }
+        )
+        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+        return response.json()['response']
+    except requests.exceptions.RequestException as e:
+        print(f"Error querying Ollama: {e}")
+        return "An error occurred while querying the model."
 
 # === Ask user ===
 while True:
@@ -114,5 +119,5 @@ while True:
         break
     retrieved = retrieve_chunks(user_query)
     final_prompt = build_prompt(user_query, retrieved)
-    response = query_llama_ollama(final_prompt)
+    response = query_ollama(final_prompt)
     print("\nAnswer:\n", response)
