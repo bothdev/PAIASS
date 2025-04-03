@@ -10,6 +10,7 @@ import fitz
 from docx import Document
 import pickle
 import pandas as pd
+import torch
 
 # === Paths for persistence ===
 INDEX_PATH = "index.faiss"
@@ -17,6 +18,11 @@ CHUNKS_PATH = "chunks.pkl"
 
 # === Load embedding model ===
 embedding_model = SentenceTransformer("intfloat/multilingual-e5-base")
+if torch.cuda.is_available():
+    embedding_model = embedding_model.to("cuda")  # Move model to GPU if available
+    print("[INFO] Using GPU for embeddings.")
+else:
+    print("[INFO] Using CPU for embeddings.")
 embedding_dim = embedding_model.get_sentence_embedding_dimension()
 
 # === PDF Reader using PyMuPDF ===
@@ -47,6 +53,32 @@ def load_documents_from_folder(folder_path):
     return all_text
 
 # === Load or build index ===
+def process_file(file_path):
+    """Process a single file and return its text content."""
+    if file_path.endswith(".txt"):
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
+    elif file_path.endswith(".docx"):
+        doc = Document(file_path)
+        return "\n".join(para.text for para in doc.paragraphs)
+    elif file_path.endswith(".pdf"):
+        return read_pdf_with_pymupdf(file_path)
+    elif file_path.endswith(".xlsx"):
+        df = pd.read_excel(file_path)
+        return df.to_string(index=False)
+    return ""
+
+def encode_passages(passages, file_name, batch_size=32):
+    """Encode text passages in batches and log embedding details."""
+    embeddings = []
+    for i in range(0, len(passages), batch_size):
+        batch = passages[i:i + batch_size]
+        print(f"[LOG] Embedding batch {i // batch_size + 1}/{(len(passages) + batch_size - 1) // batch_size}")
+        print(f"Filename: {file_name}, Batch size: {len(batch)}")
+        batch_embeddings = embedding_model.encode([f"passage: {p}" for p in batch], convert_to_tensor=torch.cuda.is_available())
+        embeddings.extend(batch_embeddings.cpu().numpy() if torch.cuda.is_available() else batch_embeddings)
+    return embeddings
+
 if os.path.exists(INDEX_PATH) and os.path.exists(CHUNKS_PATH):
     print("[INFO] Loading FAISS index and chunks from disk...")
     index = faiss.read_index(INDEX_PATH)
@@ -55,33 +87,23 @@ if os.path.exists(INDEX_PATH) and os.path.exists(CHUNKS_PATH):
 else:
     print("[INFO] Building FAISS index from documents...")
     folder_path = "./documents"
-    all_text = ""
+    index = faiss.IndexFlatL2(embedding_dim)
+    chunk_id_to_text = {}
     for file_name in os.listdir(folder_path):
         file_path = os.path.join(folder_path, file_name)
-        if os.path.isfile(file_path) and file_name.endswith((".txt", ".docx", ".pdf", ".xlsx")):  # Ensure it's a file
-            document_text = load_documents_from_folder(folder_path)  # Pass folder path for valid files
-            print(f"[INFO] Processing text: configure the maximum wait, buffer size, etc., from {file_name}")
-            all_text += document_text
+        if os.path.isfile(file_path) and file_name.endswith((".txt", ".docx", ".pdf", ".xlsx")):
+            document_text = process_file(file_path)
+            print(f"[INFO] Processing text from {file_name}")
             text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
             chunks = text_splitter.split_text(document_text)
-
-            def encode_passages(passages):
-                for i, passage in enumerate(passages):
-                    print(f"[LOG] Embedding chunk {i + 1}/{len(passages)}")
-                    print(f"Filename: {os.path.basename(file_path)}, Text: {passage[:50]}...")  # Log filename and text
-                return embedding_model.encode([f"passage: {p}" for p in passages])
-
-            chunk_embeddings = encode_passages(chunks)
-
-            index = faiss.IndexFlatL2(embedding_dim)
+            chunk_embeddings = encode_passages(chunks, file_name)
             index.add(np.array(chunk_embeddings))
+            chunk_id_to_text.update({len(chunk_id_to_text) + i: chunk for i, chunk in enumerate(chunks)})
 
-            chunk_id_to_text = {i: chunk for i, chunk in enumerate(chunks)}
-
-            # Save index and chunks
-            faiss.write_index(index, INDEX_PATH)
-            with open(CHUNKS_PATH, "wb") as f:
-                pickle.dump(chunk_id_to_text, f)
+    # Save index and chunks
+    faiss.write_index(index, INDEX_PATH)
+    with open(CHUNKS_PATH, "wb") as f:
+        pickle.dump(chunk_id_to_text, f)
 
 # === Retrieval function ===
 def retrieve_chunks(query, top_k=5):
