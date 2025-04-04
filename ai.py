@@ -46,9 +46,20 @@ class DocumentProcessor:
                 else:
                     self._initialize_processed_files()
             else:
-                raise FileNotFoundError("FAISS index or chunks not found.")
+                print("[WARNING] FAISS index or chunks not found. Initializing new index...")
+                self._initialize_new_index()
         except Exception as e:
             print(f"[ERROR] Failed to load or initialize FAISS index and metadata: {e}")
+            print("[INFO] Initializing new FAISS index...")
+            self._initialize_new_index()
+
+    def _initialize_new_index(self):
+        """Initialize a new FAISS index and metadata."""
+        self.index = faiss.IndexFlatL2(self.embedding_model.get_sentence_embedding_dimension())
+        self.chunk_id_to_text = {}
+        self.processed_files = set()
+        self._save_metadata()
+        print("[INFO] New FAISS index initialized successfully.")
 
     def _initialize_processed_files(self):
         """Initialize the processed files set."""
@@ -133,10 +144,22 @@ class DocumentProcessor:
                 ]
                 if chunk_ids_to_remove:
                     print(f"[INFO] Removing chunks for file: {file_name}")
+                    print(f"[DEBUG] Chunk IDs to remove: {chunk_ids_to_remove}")
                     self.index.remove_ids(np.array(chunk_ids_to_remove, dtype=np.int64))
                     for chunk_id in chunk_ids_to_remove:
-                        del self.chunk_id_to_text[chunk_id]
+                        if chunk_id in self.chunk_id_to_text:
+                            del self.chunk_id_to_text[chunk_id]
+                            print(f"[DEBUG] Removed chunk ID {chunk_id} from metadata.")
+                else:
+                    print(f"[WARNING] No chunks found for file: {file_name}")
                 self.processed_files.remove(file_name)
+
+            # Verify consistency of the index and metadata
+            if len(self.chunk_id_to_text) != self.index.ntotal:
+                print("[ERROR] Inconsistency detected between FAISS index and metadata. Rebuilding index...")
+                self._rebuild_index()
+
+            self._save_metadata()  # Save updated index and metadata after deletion
 
         # Process new files
         for file_name in current_files:
@@ -154,6 +177,16 @@ class DocumentProcessor:
                 self.chunk_id_to_text.update({len(self.chunk_id_to_text) + i: f"File: {file_name}\n{chunk}" for i, chunk in enumerate(chunks)})
                 self.processed_files.add(file_name)
         self._save_metadata()
+
+    def _rebuild_index(self):
+        """Rebuild the FAISS index from the current metadata."""
+        print("[INFO] Rebuilding FAISS index...")
+        self.index = faiss.IndexFlatL2(self.embedding_model.get_sentence_embedding_dimension())
+        for chunk_id, text in self.chunk_id_to_text.items():
+            embedding = self.embedding_model.encode([text], convert_to_tensor=False)
+            self.index.add(np.array(embedding, dtype=np.float32))
+        print("[INFO] FAISS index rebuilt successfully.")
+        print(f"[DEBUG] Rebuilt index size: {self.index.ntotal}")
 
     def retrieve_chunks(self, query, top_k=5):
         """Retrieve top-k chunks for a given query."""
@@ -198,12 +231,12 @@ if __name__ == "__main__":
     processor = DocumentProcessor("index.faiss", "chunks.pkl", "processed_files.pkl")
     processor.process_documents()
 
-    while True:
-        user_query = input("\nAsk your question (or type 'exit' to quit): ")
-        if user_query.lower() == "exit":
-            print("[INFO] Exiting the application.")
-            break
-        retrieved = processor.retrieve_chunks(user_query)
-        final_prompt = processor.build_prompt(user_query, retrieved)
-        response = processor.query_llama_ollama(final_prompt, "\n\n".join(retrieved))
-        print("\n", response)
+    try:
+        while True:
+            user_query = input("\nQuestion: ")
+            retrieved = processor.retrieve_chunks(user_query)
+            final_prompt = processor.build_prompt(user_query, retrieved)
+            response = processor.query_llama_ollama(final_prompt, "\n\n".join(retrieved))
+            print("\n", response)
+    except KeyboardInterrupt:
+        print("\n[INFO] Exiting the application.")
