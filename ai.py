@@ -121,21 +121,30 @@ class DocumentProcessor:
 
     def encode_passages(self, passages, file_name, batch_size=32):
         """Encode text passages in batches."""
-        embeddings = []
-        for i in range(0, len(passages), batch_size):
-            batch = passages[i:i + batch_size]
+        embeddings = []  # List to store all embeddings
+        for i in range(0, len(passages), batch_size):  # Loop through passages in steps of batch_size
+            batch = passages[i:i + batch_size]  # Extract a batch of passages
             print(f"[LOG] Embedding batch {i // batch_size + 1}/{(len(passages) + batch_size - 1) // batch_size}")
             print(f"Filename: {file_name}, Batch size: {len(batch)}")
+            # for idx, passage in enumerate(batch):
+            #     print(f"[DEBUG] Chunk {i + idx + 1}: {passage[:10]}...")  # Log the first 10 characters of each chunk
             batch_embeddings = self.embedding_model.encode(
-                [f"passage: {p}" for p in batch],
-                convert_to_tensor=torch.cuda.is_available()
+                [f"passage: {p}" for p in batch],  # Add a prefix to each passage
+                convert_to_tensor=torch.cuda.is_available()  # Use GPU tensors if available
             )
+            # Convert embeddings to numpy arrays and add to the list
             embeddings.extend(batch_embeddings.cpu().numpy() if torch.cuda.is_available() else batch_embeddings)
-        return embeddings
+        return embeddings  # Return all embeddings as a single list
 
     def process_documents(self):
         """Process new documents and update the index."""
         current_files = set(os.listdir(self.folder_path))
+        
+        # Check if the folder is empty
+        if not current_files:
+            print("[INFO] No files found in the documents folder. Skipping processing.")
+            return  # Exit the method if no files are present
+
         # Remove embeddings for deleted files
         deleted_files = self.processed_files - current_files
         if deleted_files:
@@ -198,22 +207,21 @@ class DocumentProcessor:
         query_vector = self.embedding_model.encode([f"query: {query}"])
         D, I = self.index.search(np.array(query_vector), top_k)
         print(f"[INFO] Retrieved chunk IDs: {I[0]}")
-        return [self.chunk_id_to_text[i] for i in I[0]]
+
+        # Filter out invalid chunk IDs (-1)
+        valid_chunk_ids = [i for i in I[0] if i != -1]
+        if not valid_chunk_ids:
+            print("[WARNING] No relevant chunks found for the query.")
+            return []
+
+        # Retrieve valid chunks
+        return [self.chunk_id_to_text[i] for i in valid_chunk_ids]
 
     def build_prompt(self, query, retrieved_chunks):
         """Build a prompt using the retrieved chunks."""
         print("[INFO] Building prompt with retrieved chunks...")
         context = "\n\n".join(retrieved_chunks)
-        # print(f"[DEBUG] Context sent to LLM:\n{context}")  # Log the context
-        return f"""You are a helpful assistant. Use the context below to answer the user's question.
-
-        Context:
-        {context}
-
-        Question:
-        {query}
-
-        Answer:"""
+        return f"You are a helpful assistant. Use the context below to answer the user's question. Context: {context} Question: {query} Answer:"
 
     def query_llama_ollama(self, prompt, context):
         """Send a prompt to the Ollama model and return the response."""
@@ -225,7 +233,7 @@ class DocumentProcessor:
             )
             print("[INFO] Received response from Ollama model.")
             answer = response.json()['response']
-            return f"Context:\n{context}\n\nAnswer:\n{answer}"
+            return f"Context:\n{context}\nAnswer:\n{answer}"
         except requests.exceptions.RequestException as e:
             print(f"[ERROR] Failed to connect to Ollama model: {e}")
             return f"[ERROR] Unable to process the request due to connection issues.\n\nContext:\n{context}"
