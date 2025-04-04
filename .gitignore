@@ -1,4 +1,4 @@
 documents
 index.faiss
-chunks.pkl
-documents.pkl
+*.pkl
+*.pdf
