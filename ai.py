@@ -232,7 +232,7 @@ class DocumentProcessor:
 
 # === Main Execution ===
 if __name__ == "__main__":
-    processor = DocumentProcessor("index.faiss", "chunks.pkl", "processed_files.pkl")
+    processor = DocumentProcessor("index.faiss", "chunks.pkl", "documents.pkl")
     processor.process_documents()
 
     try:
