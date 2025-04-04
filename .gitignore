@@ -1,3 +1,4 @@
 documents
-chunks.pkl
 index.faiss
+chunks.pkl
+processed_files.pkl
