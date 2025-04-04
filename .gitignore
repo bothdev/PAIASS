@@ -1,4 +1,4 @@
 documents
 index.faiss
 chunks.pkl
-processed_files.pkl
+documents.pkl
