@@ -97,14 +97,17 @@ class DocumentProcessor:
         return ""
 
     def _read_text_file(self, file_path):
+        """Read content from a text file."""
         with open(file_path, "r", encoding="utf-8") as f:
             return f.read()
 
     def _read_docx_file(self, file_path):
+        """Read content from a DOCX file."""
         doc = Document(file_path)
         return "\n".join(para.text for para in doc.paragraphs)
 
     def _read_pdf_with_pymupdf(self, file_path):
+        """Read content from a PDF file using PyMuPDF."""
         text = ""
         doc = fitz.open(file_path)
         for page in doc:
@@ -112,6 +115,7 @@ class DocumentProcessor:
         return text
 
     def _read_excel_file(self, file_path):
+        """Read content from an Excel file."""
         df = pd.read_excel(file_path)
         return df.to_string(index=False)
 
