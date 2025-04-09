@@ -1,10 +1,10 @@
+from sentence_transformers import SentenceTransformer
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from docx import Document
 import os
 import pickle
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from docx import Document
 import pandas as pd
 import fitz
 import torch
@@ -214,14 +214,28 @@ class DocumentProcessor:
             print("[WARNING] No relevant chunks found for the query.")
             return []
 
-        # Retrieve valid chunks
-        return [self.chunk_id_to_text[i] for i in valid_chunk_ids]
+        # Retrieve valid chunks and filter by similarity score
+        retrieved_chunks = []
+        for idx, chunk_id in enumerate(valid_chunk_ids):
+            if D[0][idx] < 0.5:  # Adjust the threshold as needed (lower is more similar)
+                retrieved_chunks.append(self.chunk_id_to_text[chunk_id])
+            else:
+                print(f"[INFO] Skipping chunk ID {chunk_id} due to low similarity score: {D[0][idx]}")
+
+        if not retrieved_chunks:
+            print("[WARNING] No relevant chunks passed the similarity threshold.")
+        return retrieved_chunks
 
     def build_prompt(self, query, retrieved_chunks):
         """Build a prompt using the retrieved chunks."""
         print("[INFO] Building prompt with retrieved chunks...")
         context = "\n\n".join(retrieved_chunks)
-        return f"You are a helpful assistant. Use the context below to answer the user's question. Context: {context} Question: {query} Answer:"
+        return (
+            f"You are a helpful assistant. Use the context below to answer the user's question as accurately as possible. "
+            f"Only use the provided context to answer the question. If the context does not contain enough information, "
+            f"respond with 'I can't find the relavant information from the books'\n\n"
+            f"Context:\n{context}\n\nQuestion: {query}\nAnswer:"
+        )
 
     def query_llama_ollama(self, prompt, context):
         """Send a prompt to the Ollama model and return the response."""
@@ -233,7 +247,10 @@ class DocumentProcessor:
             )
             print("[INFO] Received response from Ollama model.")
             answer = response.json()['response']
-            return f"Context:\n{context}\nAnswer:\n{answer}"
+            print(f"[DEBUG] Query: {prompt}")
+            print(f"[DEBUG] Context: {context}")
+            print(f"[DEBUG] Answer: {answer}")
+            return f"\nAnswer:\n{answer}"
         except requests.exceptions.RequestException as e:
             print(f"[ERROR] Failed to connect to Ollama model: {e}")
             return f"[ERROR] Unable to process the request due to connection issues.\n\nContext:\n{context}"
